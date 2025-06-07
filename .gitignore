@@ -14,4 +14,5 @@ venv/
 
 # Environment variables
 .env
-
+#uploaded files
+/savedFile 

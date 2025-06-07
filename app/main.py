@@ -1,5 +1,10 @@
 from fastapi import FastAPI
 from app.routes.insight import router as insight_router
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 app = FastAPI(title="DocInsight API")
 

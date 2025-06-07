@@ -1,6 +1,8 @@
 import pdfplumber
 from fastapi import APIRouter, File, UploadFile, Query
 from fastapi.responses import JSONResponse
+from app.utils.chunking import chunk_text
+from app.utils.embedder import embed_chunks
 
 router = APIRouter()
 
@@ -19,10 +21,16 @@ async def upload_pdf(file: UploadFile = File(...)):
 
     # Clean up: delete temp file (optional for now)
     # os.remove(file_location)
+     # Step 1: Chunk the text
+    chunks = chunk_text(extracted_text)
+
+    # Step 2: Get embeddings
+    embedded_chunks = embed_chunks(chunks)
 
     return JSONResponse({
         "filename": file.filename,
-        "text_preview": extracted_text[:1000]  # Show only first 1000 chars
+        "chunks_count": len(chunks),
+        "sample_chunk": embedded_chunks[0] if embedded_chunks else {}
     })
 
 @router.get("/insight")

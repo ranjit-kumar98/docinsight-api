@@ -16,3 +16,5 @@ def embed_chunks(chunks):
         })
     return embedded
 
+def embed_text(text):
+    return model.encode(text).tolist()

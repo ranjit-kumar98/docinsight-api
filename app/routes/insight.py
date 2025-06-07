@@ -7,7 +7,7 @@ router = APIRouter()
 @router.post("/upload")
 async def upload_pdf(file: UploadFile = File(...)):
     # Save file to temp location
-    file_location = f"temp_{file.filename}"
+    file_location = f"savedFile/stemp_{file.filename}"
     with open(file_location, "wb") as f:
         f.write(await file.read())
 

@@ -22,13 +22,22 @@ async def upload_pdf(file: UploadFile = File(...)):
     # Extract text using pdfplumber
     extracted_text = ""
     with pdfplumber.open(file_location) as pdf:
-        for page in pdf.pages:
-            extracted_text += page.extract_text() or ""  # avoid None
+        # for page in pdf.pages:
+        #     extracted_text += page.extract_text() or ""
+        for i, page in enumerate(pdf.pages):
+            page_text = page.extract_text() or ""
+            print(f"\n--- Page {i+1} Content ---\n{page_text[:300]}...\n")
+            extracted_text += page_text + "\n\n"  # avoid None
 
     # Clean up: delete temp file (optional for now)
     # os.remove(file_location)
      # Step 1: Chunk the text
     chunks = chunk_text(extracted_text)
+
+    print(f"\n--- Total Chunks: {len(chunks)} ---")
+    for i, ch in enumerate(chunks):
+        print(f"\n--- Chunk {i+1} (Length: {len(ch.split())} tokens) ---\n{ch[:300]}...\n")
+
 
     # Step 2: Get embeddings
     embedded_chunks = embed_chunks(chunks)

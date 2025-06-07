@@ -1,26 +1,21 @@
-def chunk_text(text, max_tokens=200):
-    import re
+import re
 
-    # Split by double newline or sentence end
-    raw_chunks = re.split(r'\n\n|\.\s', text)
-
+def chunk_text(text, lines_per_chunk=10):
+    # 1. Normalize line breaks, remove empty lines
+    lines = [ln.strip() for ln in text.replace('\r','\n').split('\n') if ln.strip()]
+    
     chunks = []
-    current_chunk = ""
-    current_tokens = 0
+    # 2. Header chunk (first 5 lines, typically account details + summary)
+    if len(lines) > 5:
+        header = " ".join(lines[:5])
+        chunks.append(header)
+        start_idx = 5
+    else:
+        start_idx = 0
 
-    for part in raw_chunks:
-        part = part.strip()
-        token_count = len(part.split())
-
-        if current_tokens + token_count > max_tokens:
-            chunks.append(current_chunk.strip())
-            current_chunk = part
-            current_tokens = token_count
-        else:
-            current_chunk += " " + part
-            current_tokens += token_count
-
-    if current_chunk:
-        chunks.append(current_chunk.strip())
+    # 3. Group the rest into fixed-size chunks
+    for i in range(start_idx, len(lines), lines_per_chunk):
+        group = lines[i : i + lines_per_chunk]
+        chunks.append(" ".join(group))
 
     return chunks

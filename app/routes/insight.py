@@ -1,10 +1,14 @@
 import pdfplumber
 from fastapi import APIRouter, File, UploadFile, Query, Request
 from fastapi.responses import JSONResponse
+
 from app.utils.chunking import chunk_text
 from app.utils.embedder import embed_chunks
 from app.utils.embedder import embed_text
 from app.utils.similarity import cosine_similarity
+
+from app.utils.qa import answer_question
+from fastapi import HTTPException
 
 router = APIRouter()
 
@@ -79,6 +83,42 @@ async def ask_question(request: Request):
         ]
     }
 
-@router.get("/insight")
-async def get_insight(doc_id: str = Query(...), q: str = Query(...)):
-    return {"answer": f"Insight for {doc_id}: {q}"}
+
+@router.post("/answer")
+async def answer(request: Request):
+    """
+    Returns a precise answer to the user's question by:
+     1. Embedding + retrieving top chunks (Day 4)
+     2. Running a QA model over those chunks
+    """
+    body = await request.json()
+    question = body.get("question")
+    if not question:
+        raise HTTPException(status_code=400, detail="`question` is required")
+
+    if not pdf_memory_store:
+        raise HTTPException(status_code=400, detail="No document uploaded")
+
+    # 1. Embed & retrieve top chunks (reuse Day 4 logic)
+    query_vec = embed_text(question)
+    scores = [(cosine_similarity(query_vec, item["embedding"]), item["chunk"])
+              for item in pdf_memory_store]
+    top_chunks = sorted(scores, key=lambda x: x[0], reverse=True)[:3]
+    context = " ".join(chunk for _, chunk in top_chunks)
+
+    # 2. QA over the combined context
+    answer = answer_question(question, context)
+
+    return {
+        "question": question,
+        "answer": answer,
+        "source_chunks": [
+            {"score": round(score, 4), "chunk": chunk}
+            for score, chunk in top_chunks
+        ]
+    }
+
+
+# @router.get("/insight")
+# async def get_insight(doc_id: str = Query(...), q: str = Query(...)):
+#     return {"answer": f"Insight for {doc_id}: {q}"}

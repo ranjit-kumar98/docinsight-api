@@ -10,70 +10,63 @@ from app.utils.similarity import cosine_similarity
 from app.utils.qa import answer_question
 from fastapi import HTTPException
 
+from app.services.vector_store import FaissStore
+import uuid
+
+faiss_store = FaissStore()
+
 router = APIRouter()
 
-# In-memory storage
-pdf_memory_store = []
 
 
 @router.post("/upload")
 async def upload_pdf(file: UploadFile = File(...)):
-    # Save file to temp location
+    # 1) Save incoming PDF
     file_location = f"savedFile/stemp_{file.filename}"
     with open(file_location, "wb") as f:
         f.write(await file.read())
 
-    # Extract text using pdfplumber
+    # 2) Extract raw text
     extracted_text = ""
     with pdfplumber.open(file_location) as pdf:
-        # for page in pdf.pages:
-        #     extracted_text += page.extract_text() or ""
         for i, page in enumerate(pdf.pages):
             page_text = page.extract_text() or ""
-            print(f"\n--- Page {i+1} Content ---\n{page_text[:300]}...\n")
-            extracted_text += page_text + "\n\n"  # avoid None
+            extracted_text += page_text + "\n\n"
 
-    # Clean up: delete temp file (optional for now)
-    # os.remove(file_location)
-     # Step 1: Chunk the text
+    # 3) Chunk & embed
     chunks = chunk_text(extracted_text)
+    embedded = embed_chunks(chunks)
 
-    print(f"\n--- Total Chunks: {len(chunks)} ---")
-    for i, ch in enumerate(chunks):
-        print(f"\n--- Chunk {i+1} (Length: {len(ch.split())} tokens) ---\n{ch[:300]}...\n")
+    # 4) Persist into FAISS
+    doc_id    = str(uuid.uuid4())
+    vectors   = [item["embedding"] for item in embedded]
+    texts     = [item["chunk"]     for item in embedded]
+    metadatas = [(doc_id, txt) for txt in texts]
+    faiss_store.add(vectors, metadatas)
 
-
-    # Step 2: Get embeddings
-    embedded_chunks = embed_chunks(chunks)
-
-    pdf_memory_store.clear()
-    pdf_memory_store.extend(embedded_chunks)
-
+    # 5) Return metadata (including doc_id!)
     return JSONResponse({
-        "filename": file.filename,
-        "chunks_count": len(chunks),
-        "sample_chunk": embedded_chunks[0] if embedded_chunks else {}
+        "filename":     file.filename,
+        "doc_id":       doc_id,
+        "chunks_count": len(chunks)
     })
 
 @router.post("/ask")
 async def ask_question(request: Request):
     body = await request.json()
     question = body.get("question")
+    doc_id = body.get("doc_id")  # Optional
 
-    if not pdf_memory_store:
-        return {"error": "No document uploaded yet."}
+    if not question:
+        raise HTTPException(status_code=400, detail="`question` is required")
 
-   
+    if faiss_store.index.ntotal == 0:
+        raise HTTPException(status_code=400, detail="No documents available")
+
     query_vec = embed_text(question)
 
-    # Score all chunks
-    scored = []
-    for item in pdf_memory_store:
-        score = cosine_similarity(query_vec, item["embedding"])
-        scored.append((score, item["chunk"]))
-
-    # Sort by similarity score (descending)
-    top_chunks = sorted(scored, key=lambda x: x[0], reverse=True)[:3]
+    # Retrieve top-k results
+    top_chunks = faiss_store.search(query_vec, top_k=3, doc_id=doc_id)
 
     return {
         "question": question,
@@ -86,27 +79,21 @@ async def ask_question(request: Request):
 
 @router.post("/answer")
 async def answer(request: Request):
-    """
-    Returns a precise answer to the user's question by:
-     1. Embedding + retrieving top chunks (Day 4)
-     2. Running a QA model over those chunks
-    """
     body = await request.json()
     question = body.get("question")
+    doc_id = body.get("doc_id")  # Optional
+
     if not question:
         raise HTTPException(status_code=400, detail="`question` is required")
 
-    if not pdf_memory_store:
-        raise HTTPException(status_code=400, detail="No document uploaded")
+    if faiss_store.index.ntotal == 0:
+        raise HTTPException(status_code=400, detail="No documents available")
 
-    # 1. Embed & retrieve top chunks (reuse Day 4 logic)
     query_vec = embed_text(question)
-    scores = [(cosine_similarity(query_vec, item["embedding"]), item["chunk"])
-              for item in pdf_memory_store]
-    top_chunks = sorted(scores, key=lambda x: x[0], reverse=True)[:3]
+
+    top_chunks = faiss_store.search(query_vec, top_k=3, doc_id=doc_id)
     context = " ".join(chunk for _, chunk in top_chunks)
 
-    # 2. QA over the combined context
     answer = answer_question(question, context)
 
     return {
@@ -117,6 +104,7 @@ async def answer(request: Request):
             for score, chunk in top_chunks
         ]
     }
+
 
 
 # @router.get("/insight")
